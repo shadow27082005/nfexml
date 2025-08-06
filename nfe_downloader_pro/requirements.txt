@@ -1,0 +1,19 @@
+# NFe Downloader Pro - Dependências
+# Versão com Detecção Automática Inteligente
+
+# Interface gráfica (tkinter - já incluído no Python)
+
+# Automação
+pyautogui==0.9.54
+keyboard==0.13.5
+
+# Processamento de imagem e detecção
+opencv-python==4.8.1.78
+numpy==1.24.3
+Pillow==10.0.1
+
+# OCR (Reconhecimento de texto)
+pytesseract==0.3.10
+
+# Utilitários
+python-dateutil==2.8.2
