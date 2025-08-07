@@ -61,6 +61,22 @@ class SmartButtonDetector:
     
     def take_screenshot(self) -> np.ndarray:
         """Captura screenshot da tela"""
+        import os
+        
+        # Detecta se estamos no WSL
+        if os.path.exists('/proc/version') and 'microsoft' in open('/proc/version').read().lower():
+            raise Exception(
+                "❌ DETECÇÃO AUTOMÁTICA NO WSL\n\n"
+                "A detecção automática não funciona no WSL porque:\n"
+                "• O site abre no navegador Windows\n" 
+                "• O PyAutoGUI captura apenas a tela do Linux/WSL\n"
+                "• São ambientes gráficos separados\n\n"
+                "SOLUÇÕES:\n"
+                "1. Use o modo MANUAL na aba Coordenadas\n"
+                "2. Execute o app diretamente no Windows\n"
+                "3. Configure as coordenadas manualmente clicando nos botões 'Capturar'"
+            )
+        
         screenshot = pyautogui.screenshot()
         return cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
     

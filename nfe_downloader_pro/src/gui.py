@@ -381,6 +381,10 @@ class CoordenadasTab(tk.Frame):
         
     def _create_widgets(self):
         """Create tab widgets"""
+        import os
+        # Detecta se estamos no WSL
+        is_wsl = os.path.exists('/proc/version') and 'microsoft' in open('/proc/version').read().lower()
+        
         # Title
         title_frame = tk.Frame(self, bg='white', height=60)
         title_frame.pack(fill='x', padx=20, pady=10)
@@ -405,20 +409,84 @@ class CoordenadasTab(tk.Frame):
         )
         instructions_frame.pack(fill='x', padx=20, pady=(0, 10))
         
-        instructions_text = """
+        if is_wsl:
+            instructions_text = """
+📋 MODO MANUAL (WSL):
+1. Clique no botão "🌐 Abrir Site da NFe" abaixo
+2. No navegador Windows que abrir, carregue a página da NFe
+3. Volte para este aplicativo no WSL
+4. Para cada elemento, clique "Capturar", depois vá até o navegador Windows
+5. Posicione o mouse sobre o elemento no Windows e pressione ESPAÇO
+6. Repita para todos os elementos necessários
+7. Salve as configurações
+
+⚠️ IMPORTANTE: Mantenha ambas as janelas visíveis (app WSL + navegador Windows)
+            """.strip()
+        else:
+            instructions_text = """
 1. Abra o site da Receita Federal em seu navegador
 2. Navegue até a página de consulta de NFe
 3. Clique em "Capturar" para cada elemento
 4. Posicione o mouse sobre o elemento e pressione ESPAÇO
 5. Verifique se as coordenadas estão corretas
 6. Salve as configurações antes de usar a automação
-        """.strip()
+            """.strip()
         
         tk.Label(
             instructions_frame, text=instructions_text,
             font=('Segoe UI', 10), bg='white', fg='#333',
             justify='left'
         ).pack(padx=10, pady=10, anchor='w')
+        
+        # Auto-detect frame
+        detect_frame = tk.LabelFrame(
+            self, text=" 🤖 Detecção Automática Inteligente ",
+            font=('Segoe UI', 11, 'bold'), bg='white', fg='#333'
+        )
+        detect_frame.pack(fill='x', padx=20, pady=(0, 10))
+        
+        # is_wsl já foi definido no início do método
+        
+        if is_wsl:
+            detect_text = "⚠️ WSL DETECTADO: A detecção automática não funciona no WSL pois o navegador abre no Windows. Use a captura manual abaixo:"
+        else:
+            detect_text = "Use a detecção automática para encontrar os elementos automaticamente na tela:"
+        tk.Label(
+            detect_frame, text=detect_text,
+            font=('Segoe UI', 10), bg='white', fg='#333',
+            justify='left'
+        ).pack(padx=10, pady=(10, 5), anchor='w')
+        
+        # Buttons frame inside detect_frame
+        detect_buttons_frame = tk.Frame(detect_frame, bg='white')
+        detect_buttons_frame.pack(fill='x', padx=10, pady=(0, 10))
+        
+        # Desabilita detecção automática no WSL
+        if is_wsl:
+            self.auto_detect_btn = ModernButton(
+                detect_buttons_frame, text="🚫 Não Funciona no WSL",
+                bg='#666', fg='white', font=('Segoe UI', 11, 'bold'),
+                state='disabled'
+            )
+        else:
+            self.auto_detect_btn = ModernButton(
+                detect_buttons_frame, text="🤖 Detectar Automaticamente",
+                bg='#9b59b6', fg='white', font=('Segoe UI', 11, 'bold'),
+                command=self._auto_detect_coordinates
+            )
+        self.auto_detect_btn.pack(side='left', padx=(0, 10))
+        
+        ModernButton(
+            detect_buttons_frame, text="🌐 Abrir Site da NFe",
+            bg='#2196F3', fg='white', font=('Segoe UI', 10),
+            command=self._open_nfe_site
+        ).pack(side='left', padx=(0, 10))
+        
+        ModernButton(
+            detect_buttons_frame, text="🖼️ Salvar Debug",
+            bg='#f39c12', fg='white', font=('Segoe UI', 9),
+            command=self._save_debug_image
+        ).pack(side='left')
         
         # Coordinates frame
         coords_frame = tk.LabelFrame(
@@ -712,6 +780,136 @@ class CoordenadasTab(tk.Frame):
     def get_coordinates(self) -> Dict[str, Dict[str, int]]:
         """Get current coordinates"""
         return self.coordinates.copy()
+    
+    def _auto_detect_coordinates(self):
+        """Execute automatic coordinate detection"""
+        self.auto_detect_btn.config(state='disabled', text="🔍 Detectando...")
+        
+        def detect():
+            try:
+                # Execute detection
+                detected_coords = automation_controller.automation.auto_detect_coordinates()
+                
+                # Update UI in main thread
+                self.after(0, lambda: self._finish_auto_detection(detected_coords))
+                
+            except Exception as e:
+                self.after(0, lambda: self._auto_detect_error(str(e)))
+        
+        # Run in separate thread
+        threading.Thread(target=detect, daemon=True).start()
+    
+    def _finish_auto_detection(self, detected_coords):
+        """Finish auto-detection process"""
+        self.auto_detect_btn.config(state='normal', text="🤖 Detectar Automaticamente")
+        
+        # Update coordinates with detected values
+        for key, pos in detected_coords.items():
+            if pos is not None and key in self.coord_entries:
+                x, y = pos
+                self.coord_entries[key]['x'].delete(0, tk.END)
+                self.coord_entries[key]['x'].insert(0, str(x))
+                self.coord_entries[key]['y'].delete(0, tk.END)
+                self.coord_entries[key]['y'].insert(0, str(y))
+                
+                # Update coordinates dict
+                if key not in self.coordinates:
+                    self.coordinates[key] = {}
+                self.coordinates[key]['x'] = x
+                self.coordinates[key]['y'] = y
+        
+        # Save automatically
+        config.save_coordinates(self.coordinates)
+        
+        found_count = sum(1 for pos in detected_coords.values() if pos is not None)
+        total_count = len(detected_coords)
+        
+        if found_count >= 4:
+            messagebox.showinfo(
+                "Detecção Automática", 
+                f"✅ Detecção bem-sucedida!\n\n"
+                f"Encontrados: {found_count}/{total_count} elementos\n\n"
+                f"As coordenadas foram atualizadas automaticamente."
+            )
+            self.status_callback("Detecção automática concluída com sucesso", False)
+        elif found_count >= 2:
+            messagebox.showwarning(
+                "Detecção Parcial",
+                f"⚠️ Detecção parcial\n\n"
+                f"Encontrados: {found_count}/{total_count} elementos\n\n"
+                f"Verifique se a página da NFe está carregada corretamente."
+            )
+            self.status_callback("Detecção parcial - alguns elementos não encontrados", False)
+        else:
+            messagebox.showerror(
+                "Detecção Falhou",
+                f"❌ Detecção falhou\n\n"
+                f"Apenas {found_count}/{total_count} elementos encontrados\n\n"
+                f"Abra a página da NFe no navegador e tente novamente."
+            )
+            self.status_callback("Detecção automática falhou", False)
+    
+    def _auto_detect_error(self, error):
+        """Handle auto-detection error"""
+        self.auto_detect_btn.config(state='normal', text="🤖 Detectar Automaticamente")
+        messagebox.showerror("Erro na Detecção", f"Erro durante detecção automática:\n\n{error}")
+        self.status_callback("Erro na detecção automática", False)
+    
+    def _save_debug_image(self):
+        """Save debug image with detected elements"""
+        try:
+            filename = f"detection_debug_{datetime.now().strftime('%H%M%S')}.png"
+            automation_controller.automation.save_detection_debug_image(filename)
+            
+            messagebox.showinfo(
+                "Imagem Debug", 
+                f"✅ Imagem de debug salva!\n\n"
+                f"Arquivo: {filename}\n\n"
+                f"Use esta imagem para verificar quais elementos foram detectados."
+            )
+            self.status_callback(f"Imagem de debug salva: {filename}", False)
+            
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao salvar imagem de debug:\n\n{e}")
+            self.status_callback("Erro ao salvar imagem de debug", False)
+    
+    def _open_nfe_site(self):
+        """Open NFe website in browser"""
+        try:
+            import subprocess
+            import os
+            
+            url = "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g%3d"
+            
+            # Try WSL specific method first
+            if os.path.exists('/proc/version') and 'microsoft' in open('/proc/version').read().lower():
+                # WSL environment - use PowerShell to open URL
+                subprocess.run(['powershell.exe', '-c', f'Start-Process "{url}"'], check=True)
+            else:
+                # Linux environment - try xdg-open
+                subprocess.run(['xdg-open', url], check=True)
+                
+            self.status_callback("Site da NFe aberto no navegador", False)
+        except Exception as e:
+            # Fallback to webbrowser
+            try:
+                import webbrowser
+                webbrowser.open(url)
+                self.status_callback("Site da NFe aberto no navegador", False)
+            except Exception as e2:
+                messagebox.showwarning(
+                    "Link da NFe", 
+                    f"Não foi possível abrir automaticamente.\n\n"
+                    f"Copie este link e cole no seu navegador:\n\n"
+                    f"{url}"
+                )
+                # Copy to clipboard if possible
+                try:
+                    import pyperclip
+                    pyperclip.copy(url)
+                    self.status_callback("Link copiado para a área de transferência", False)
+                except:
+                    self.status_callback("Erro ao abrir site - use o link manualmente", False)
 
 
 class AutomacaoTab(tk.Frame):
@@ -783,23 +981,15 @@ class AutomacaoTab(tk.Frame):
         )
         self.coords_status.pack(anchor='w', padx=10)
         
-        # Auto-detect frame
-        detect_frame = tk.Frame(left_frame, bg='white')
-        detect_frame.pack(fill='x', padx=10, pady=10)
+        # Open NFe Site button
+        site_frame = tk.Frame(left_frame, bg='white')
+        site_frame.pack(fill='x', padx=10, pady=10)
         
-        self.auto_detect_btn = ModernButton(
-            detect_frame, text="🤖 Detecção Automática Inteligente",
-            bg='#9b59b6', fg='white', font=('Segoe UI', 11, 'bold'),
-            command=self._auto_detect_coordinates
-        )
-        self.auto_detect_btn.pack(fill='x', pady=5)
-        
-        # Debug button
         ModernButton(
-            detect_frame, text="🖼️ Salvar Imagem Debug",
-            bg='#f39c12', fg='white', font=('Segoe UI', 9),
-            command=self._save_debug_image
-        ).pack(fill='x', pady=2)
+            site_frame, text="🌐 Abrir Site da NFe",
+            bg='#2196F3', fg='white', font=('Segoe UI', 11, 'bold'),
+            command=self._open_nfe_site
+        ).pack(fill='x', pady=5)
         
         # Control buttons
         buttons_frame = tk.Frame(left_frame, bg='white')
@@ -1054,79 +1244,43 @@ class AutomacaoTab(tk.Frame):
         self._update_status_display()
         self.after(1000, self._start_status_timer)  # Update every second
     
-    def _auto_detect_coordinates(self):
-        """Execute automatic coordinate detection"""
-        self.auto_detect_btn.config(state='disabled', text="🔍 Detectando...")
-        
-        def detect():
-            try:
-                # Execute detection
-                detected_coords = automation_controller.automation.auto_detect_coordinates()
-                
-                # Update UI in main thread
-                self.after(0, lambda: self._finish_auto_detection(detected_coords))
-                
-            except Exception as e:
-                self.after(0, lambda: self._auto_detect_error(str(e)))
-        
-        # Run in separate thread
-        threading.Thread(target=detect, daemon=True).start()
-    
-    def _finish_auto_detection(self, detected_coords):
-        """Finish auto-detection process"""
-        self.auto_detect_btn.config(state='normal', text="🤖 Detecção Automática Inteligente")
-        
-        found_count = sum(1 for pos in detected_coords.values() if pos is not None)
-        total_count = len(detected_coords)
-        
-        if found_count >= 4:
-            messagebox.showinfo(
-                "Detecção Automática", 
-                f"✅ Detecção bem-sucedida!\n\n"
-                f"Encontrados: {found_count}/{total_count} elementos\n\n"
-                f"A automação está pronta para iniciar."
-            )
-            self.status_callback("Detecção automática concluída com sucesso", False)
-        elif found_count >= 2:
-            messagebox.showwarning(
-                "Detecção Parcial",
-                f"⚠️ Detecção parcial\n\n"
-                f"Encontrados: {found_count}/{total_count} elementos\n\n"
-                f"Verifique se a página da NFe está carregada corretamente."
-            )
-            self.status_callback("Detecção parcial - alguns elementos não encontrados", False)
-        else:
-            messagebox.showerror(
-                "Detecção Falhou",
-                f"❌ Detecção falhou\n\n"
-                f"Apenas {found_count}/{total_count} elementos encontrados\n\n"
-                f"Abra a página da NFe no navegador e tente novamente."
-            )
-            self.status_callback("Detecção automática falhou", False)
-    
-    def _auto_detect_error(self, error):
-        """Handle auto-detection error"""
-        self.auto_detect_btn.config(state='normal', text="🤖 Detecção Automática Inteligente")
-        messagebox.showerror("Erro na Detecção", f"Erro durante detecção automática:\n\n{error}")
-        self.status_callback("Erro na detecção automática", False)
-    
-    def _save_debug_image(self):
-        """Save debug image with detected elements"""
+    def _open_nfe_site(self):
+        """Open NFe website in browser"""
         try:
-            filename = f"detection_debug_{datetime.now().strftime('%H%M%S')}.png"
-            automation_controller.automation.save_detection_debug_image(filename)
+            import subprocess
+            import os
             
-            messagebox.showinfo(
-                "Imagem Debug", 
-                f"✅ Imagem de debug salva!\n\n"
-                f"Arquivo: {filename}\n\n"
-                f"Use esta imagem para verificar quais elementos foram detectados."
-            )
-            self.status_callback(f"Imagem de debug salva: {filename}", False)
+            url = "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g%3d"
             
+            # Try WSL specific method first
+            if os.path.exists('/proc/version') and 'microsoft' in open('/proc/version').read().lower():
+                # WSL environment - use PowerShell to open URL
+                subprocess.run(['powershell.exe', '-c', f'Start-Process "{url}"'], check=True)
+            else:
+                # Linux environment - try xdg-open
+                subprocess.run(['xdg-open', url], check=True)
+                
+            self.status_callback("Site da NFe aberto no navegador", False)
         except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar imagem de debug:\n\n{e}")
-            self.status_callback("Erro ao salvar imagem de debug", False)
+            # Fallback to webbrowser
+            try:
+                import webbrowser
+                webbrowser.open(url)
+                self.status_callback("Site da NFe aberto no navegador", False)
+            except Exception as e2:
+                messagebox.showwarning(
+                    "Link da NFe", 
+                    f"Não foi possível abrir automaticamente.\n\n"
+                    f"Copie este link e cole no seu navegador:\n\n"
+                    f"{url}"
+                )
+                # Copy to clipboard if possible
+                try:
+                    import pyperclip
+                    pyperclip.copy(url)
+                    self.status_callback("Link copiado para a área de transferência", False)
+                except:
+                    self.status_callback("Erro ao abrir site - use o link manualmente", False)
 
 
 class LogTab(tk.Frame):

@@ -8,7 +8,7 @@ import threading
 import os
 import cv2
 import numpy as np
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Tuple
 from datetime import datetime
 import pyautogui
 from PIL import Image
